@@ -11,30 +11,26 @@ DEFAULT_FILES = (
 )
 
 
-def dedupe_file(path: Path, *, dry_run: bool) -> tuple[int, int]:
+def dedupe_file(path: Path, *, dry_run: bool) -> tuple[int, int, bool]:
     lines = path.read_text(encoding="utf-8").splitlines()
-
-    seen: set[str] = set()
-    deduped: list[str] = []
-
-    for line in lines:
-        if line in seen:
-            continue
-
-        seen.add(line)
-        deduped.append(line)
+    deduped = sorted(set(lines))
 
     removed = len(lines) - len(deduped)
+    changed = lines != deduped
 
-    if removed and not dry_run:
-        path.write_text("\n".join(deduped) + "\n", encoding="utf-8")
+    if changed and not dry_run:
+        content = "\n".join(deduped)
+        if content:
+            content += "\n"
 
-    return len(lines), removed
+        path.write_text(content, encoding="utf-8")
+
+    return len(lines), removed, changed
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Remove duplicate lines from list files while preserving first occurrence order.",
+        description="Remove duplicate lines from list files and sort them.",
     )
     parser.add_argument(
         "files",
@@ -51,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Exit with code 1 if any duplicates are found.",
+        help="Exit with code 1 if any file has duplicates or is not sorted.",
     )
     return parser.parse_args()
 
@@ -59,14 +55,15 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     dry_run = args.dry_run or args.check
-    found_duplicates = False
+    found_changes = False
 
     for path in args.files:
-        total, removed = dedupe_file(path, dry_run=dry_run)
-        found_duplicates = found_duplicates or removed > 0
-        print(f"{path}: {total} lines, {removed} duplicates")
+        total, removed, changed = dedupe_file(path, dry_run=dry_run)
+        found_changes = found_changes or changed
+        status = "changed" if changed else "ok"
+        print(f"{path}: {total} lines, {removed} duplicates, {status}")
 
-    if args.check and found_duplicates:
+    if args.check and found_changes:
         return 1
 
     return 0
